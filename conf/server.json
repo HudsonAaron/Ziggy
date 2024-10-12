@@ -1,0 +1,45 @@
+{
+    "TcpConf":{
+        "maxsize": 10000,
+		"ip":      "127.0.0.1",
+		"port":    9001
+    },
+    "HttpConf":{
+        "ip":      "127.0.0.1",
+        "port":    9002
+    },
+    "MysqlConf":{
+        "host":      "127.0.0.1",
+		"port":      3306,
+		"user":      "root",
+		"password":  "111111",
+		"database":  "test",
+		"keepalive": true, 
+		"maxnum":    100,
+		"maxidle":   20
+    },
+    "LogConf":{
+        "path":   "./logs/",
+		"level":  "info",
+		"format": "%s【%s:%d】[%s]: %s",
+		"size":   104857600,
+		"logfile": [
+            {
+				"level":    "info",
+				"filename": "info"
+			},
+			{
+				"level":    "warning",
+				"filename": "warning"
+			},
+			{
+				"level":    "error",
+				"filename": "error"
+			},
+			{
+				"level":    "crash",
+				"filename": "crash"
+			}
+        ]
+    }
+}
