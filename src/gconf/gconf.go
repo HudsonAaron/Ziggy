@@ -13,6 +13,11 @@ var (
 		"ip":   "127.0.0.1", // IP地址
 		"port": 9002,        // 端口号
 	}
+	// 默认WebSocket配置
+	WebSocketConf = map[string]any{
+		"ip":   "127.0.0.1", // IP地址
+		"port": 9003,        // 端口号
+	}
 	// 默认Mysql数据库配置
 	MysqlConf = map[string]any{
 		"host":      "127.0.0.1",
