@@ -8,7 +8,7 @@ import (
 )
 
 func _TestGWS() {
-	_ = Start("127.0.0.1:8080/", _GetWSRouter())
+	_ = DoStart("127.0.0.1:8080/", _GetWSRouter())
 }
 
 func _GetWSRouter() []WSRouter {

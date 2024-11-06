@@ -1,12 +1,16 @@
 {
     "TcpConf":{
-        "maxsize": 10000,
+        "maxsize": 2000,
 		"ip":      "127.0.0.1",
 		"port":    9001
     },
     "HttpConf":{
         "ip":      "127.0.0.1",
         "port":    9002
+    },
+	"WebSocketConf":{
+        "ip":      "127.0.0.1",
+        "port":    9003
     },
     "MysqlConf":{
         "host":      "127.0.0.1",

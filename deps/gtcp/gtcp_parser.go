@@ -11,9 +11,12 @@ func (tm *TcpMsg) Parse() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	tm.data = tm.data[4:msgLen]
+	if msgLen == 0 {
+		return tm.data, nil
+	}
 	// 返回剩余的消息
-	leftMsg := tm.data[msgLen:]
+	leftMsg := tm.data[4+msgLen:]
+	tm.data = tm.data[4 : 4+msgLen]
 	return leftMsg, nil
 }
 

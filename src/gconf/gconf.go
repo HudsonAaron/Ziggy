@@ -4,7 +4,7 @@ var (
 	Conf = "./conf/server.json"
 	// 默认Tcp配置
 	TcpConf = map[string]any{
-		"maxsize": 10000,       // 最大连接数
+		"maxsize": 2000,        // 最大连接数
 		"ip":      "127.0.0.1", // IP地址
 		"port":    9001,        // 端口号
 	}

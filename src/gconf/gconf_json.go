@@ -9,10 +9,11 @@ import (
 
 // 服务配置结构体
 type ServerConf struct {
-	TcpConf   map[string]any `json:"TcpConf"`   // Tcp配置
-	HttpConf  map[string]any `json:"HttpConf"`  // Http配置
-	MysqlConf map[string]any `json:"MysqlConf"` // Mysql配置
-	LogConf   map[string]any `json:"LogConf"`   // 日志配置
+	TcpConf       map[string]any `json:"TcpConf"`       // Tcp配置
+	HttpConf      map[string]any `json:"HttpConf"`      // Http配置
+	WebSocketConf map[string]any `json:"WebSocketConf"` // WebSocket配置
+	MysqlConf     map[string]any `json:"MysqlConf"`     // Mysql配置
+	LogConf       map[string]any `json:"LogConf"`       // 日志配置
 }
 
 // 读取服务配置
@@ -34,6 +35,7 @@ func LoadConf() error {
 	fmt.Println("LoadConf Success")
 	TcpConf = SrvConf.TcpConf
 	HttpConf = SrvConf.HttpConf
+	WebSocketConf = SrvConf.WebSocketConf
 	MysqlConf = SrvConf.MysqlConf
 	LogConf = SrvConf.LogConf
 	return nil

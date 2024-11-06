@@ -21,7 +21,10 @@ func (tc *TcpConn) RecvMsg() {
 			break
 		}
 		tc.msg = leftMsg
-		// 将解析后的数据放入通道
-		tc.msgChan <- tm.data
+		if tm.data != nil {
+			// 将解析后的数据放入通道
+			tc.msgChan <- tm.data
+		}
 	}
+	tcpPool.Delete(tc) // 从连接池中删除
 }
