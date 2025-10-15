@@ -28,7 +28,7 @@ var (
 
 // WebSocket客户端结构体
 type GWClient struct {
-	conn *websocket.Conn
+	Conn *websocket.Conn
 }
 
 // WebSocket服务端结构体
@@ -82,7 +82,7 @@ func DoStart(addr string, wsr []WSRouter) error {
 	}
 	go wss.StartServe()      // 启动websocket服务
 	go server.BroadcastMsg() // 启动广播协程
-	go ShowConnCount()       // 启动显示连接数协程
+	// go ShowConnCount()       // 启动显示连接数协程
 	glog.Info("WebSocket Server start up")
 	return nil
 }

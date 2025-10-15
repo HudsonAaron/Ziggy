@@ -42,7 +42,7 @@ func (hr *WSRouter) ActualHandle(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	server.lock.Lock()
 	// 连接成功
-	client := &GWClient{conn: conn}
+	client := &GWClient{Conn: conn}
 	server.clients[client] = true
 	server.lock.Unlock()
 	hr.Handle(w, r, conn)

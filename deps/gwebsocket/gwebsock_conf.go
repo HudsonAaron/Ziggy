@@ -5,7 +5,7 @@ import "fmt"
 // 获取配置
 func GetWebSockConf(webSockConf map[string]any) (string, error) {
 	var domain = ""
-	if webSockConf["domain"] != nil { // domain字段存在
+	if webSockConf["domain"] != "" { // domain字段存在
 		if _domain, ok := webSockConf["domain"].(string); ok {
 			domain = _domain
 			return domain, nil

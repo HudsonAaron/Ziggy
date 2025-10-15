@@ -11,10 +11,10 @@ func (gws *GWServer) BroadcastMsg() {
 	for {
 		msg := <-gws.broadcast
 		for client := range gws.clients {
-			if client.conn != nil {
-				err := client.conn.WriteJSON(msg)
+			if client.Conn != nil {
+				err := client.Conn.WriteJSON(msg)
 				if err != nil {
-					client.conn.Close()
+					client.Conn.Close()
 					delete(gws.clients, client)
 				}
 			} else {

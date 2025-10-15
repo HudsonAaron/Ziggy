@@ -5,6 +5,8 @@ import (
 	"main/deps/gutil"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // 日志结构体
@@ -53,11 +55,18 @@ func NewLogger(logLv string, logPath string, logName string, maxSize int64) *Log
 // 打开日志，日志文件不存在，则创建并打开
 func (lg *Logger) OpenFile() {
 	filePath := GetLogPath(lg.path, lg.filename) // 拼接日志路径
-	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0777)
-	if err != nil {
-		log.Fatal(err)
+	// 如果文件已存在，则接下着写文件
+	if _, err := os.Stat(filePath); err == nil {
+		lg.file, err = os.OpenFile(filePath, os.O_RDWR|os.O_APPEND, 0777)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else if lg.file == nil {
+		lg.file, err = os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0777)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
-	lg.file = file
 	lg.filePath = filePath
 	lg.createTime = gutil.Timestamp()
 }
@@ -66,7 +75,10 @@ func (lg *Logger) OpenFile() {
 func (lg *Logger) Start() {
 	for {
 		msg := <-lg.msgChan
-		lg.CheckLogStatus()
+		if lg.CheckLogRebuild() {
+			lg.Stop()     // 关闭文件
+			lg.OpenFile() // 重新打开文件
+		}
 		lg.file.WriteString(msg + "\n")
 	}
 }
@@ -74,7 +86,8 @@ func (lg *Logger) Start() {
 // 关闭日志文件
 func (lg *Logger) Stop() {
 	if lg != nil && lg.file != nil {
-		defer lg.file.Close()
+		lg.file.Close()
+		lg.BatchRenameLog() // 批量修改日志文件名
 		lg.file = nil
 		lg.createTime = 0
 		lg.filePath = ""
@@ -83,26 +96,100 @@ func (lg *Logger) Stop() {
 
 // 拼接日志路径
 func GetLogPath(logPath string, logName string) string {
-	dateTime := gutil.FormatTimeByLayout("2006-01-02_150405")
+	dateTime := gutil.FormatTimeByLayout("2006-01-02")
 	return filepath.Join(logPath, logName+"_"+dateTime+".log")
 }
 
 // 检测日志文件状态
 func (lg *Logger) CheckLogStatus() {
+	if lg.CheckLogRebuild() {
+		lg.Stop() // 关闭文件
+	}
+	if lg.file == nil { // 文件不存在，则打开文件
+		lg.OpenFile()
+	}
+}
+
+// 检测日志文件是否需要重建
+func (lg *Logger) CheckLogRebuild() bool {
 	if lg.file != nil {
 		fileInfo, err := os.Stat(lg.filePath)
 		if err != nil {
 			log.Fatal(err)
+			return false
 		}
 		// 文件大小超过限制，则关闭文件，重新创建新的日志文件
 		IsOverSize := fileInfo.Size() > lg.maxSize
 		// 判断当前时间是否跨越天，如果是，则关闭文件，重新创建新的日志文件
 		IsSameDay := gutil.IsSameDay(gutil.Timestamp(), lg.createTime)
 		if IsOverSize || !IsSameDay {
-			lg.Stop() // 关闭文件
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+// 批量修改当前旧日志文件名
+func (lg *Logger) BatchRenameLog() {
+	if !lg.CheckLogRebuild() {
+		return
+	}
+	// 获取当前日志文件所在路径下的所有相同名字的日志文件列表
+	basePath := filepath.Dir(lg.filePath)
+	files, err := os.ReadDir(basePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// 去掉filePath中的路径以及后缀名
+	filename := filepath.Base(lg.filePath)
+	fName := filename[:len(filename)-len(filepath.Ext(filename))] // 无后缀
+	logList := make([]string, 0)
+	for _, file := range files {
+		// 如果 file.Name() 包含了 fName，则添加到 logList 列表中
+		if strings.Contains(file.Name(), fName) {
+			logList = append(logList, file.Name())
 		}
 	}
-	if lg.file == nil { // 文件不存在，则打开文件
-		lg.OpenFile()
+	// 按照logList列表中的文件创建时间进行排序
+	sortLogList := SortLogList(logList, filename)
+	for _, logName := range sortLogList {
+		num := "0"
+		// 截取文件后缀后面的数字，没有数字，则默认为0
+		if logName == filename {
+			num = "0"
+		} else {
+			num = logName[len(filename)+1:]
+			// num+1后，转为字符串
+			idx, err := strconv.Atoi(num)
+			if err != nil {
+				log.Fatal(err)
+			}
+			num = strconv.Itoa(idx + 1)
+		}
+		newName := filename + "." + num
+		err := os.Rename(filepath.Join(basePath, logName), filepath.Join(basePath, newName))
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
+}
+
+// 文件名后缀的序号越大，则越先开始处理
+func SortLogList(logList []string, filename string) []string {
+	for i := 0; i < len(logList); i++ {
+		for j := i + 1; j < len(logList); j++ {
+			if logList[j] == filename || (logList[i] == filename && logList[j] == filename) {
+				continue
+			}
+			if logList[i] == filename && logList[j] != filename {
+				logList[i], logList[j] = logList[j], logList[i]
+				continue
+			}
+			if logList[i][len(filename)+1:] < logList[j][len(filename)+1:] {
+				logList[i], logList[j] = logList[j], logList[i]
+			}
+		}
+	}
+	return logList
 }

@@ -46,8 +46,8 @@ func Stop() {
 }
 
 // 执行SQL语句
-func Exec(sql string) (sql.Result, error) {
-	return DBConn.Exec(sql)
+func Exec(sql string, args ...any) (sql.Result, error) {
+	return DBConn.Exec(sql, args...)
 }
 
 // 执行SQL语句，使用事务
@@ -68,6 +68,6 @@ func ExecTx(sqls []string) error {
 }
 
 // 查询SQL语句
-func Query(sql string) (*sql.Rows, error) {
-	return DBConn.Query(sql)
+func Query(sql string, args ...any) (*sql.Rows, error) {
+	return DBConn.Query(sql, args...)
 }
