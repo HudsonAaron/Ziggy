@@ -3,7 +3,8 @@ package gactor
 import "fmt"
 
 // loop回调
-func (ga *GActor) Loop() {
+func (ga *gActorStatus) Loop() {
+	defer close(ga.msgChan)
 	for {
 		gam := <-ga.msgChan
 		fmt.Println("Loop:", ga.state)
@@ -17,6 +18,9 @@ func (ga *GActor) Loop() {
 			continue
 		case STOP: // stop回调类型
 			ga.Terminate(&gam)
+			return
+		default:
+			fmt.Println("unknown msgType:", gam.msgType)
 			return
 		}
 	}

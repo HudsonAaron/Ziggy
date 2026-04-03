@@ -3,12 +3,13 @@ package gactor
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 var (
-	Version      = "1.0.0"                  // 版本号
-	MsgQueueSize = 100                      // 消息队列大小
-	ActorMap     = make(map[string]*GActor) // actor map
+	Version      = "1.0.1"                        // 版本号
+	MsgQueueSize = 100                            // 消息队列大小
+	actorMap     = make(map[string]*gActorStatus) // actor map
 	lock         sync.Mutex
 )
 
@@ -22,12 +23,13 @@ type Handle func(...interface{}) (interface{}, GActorState, error)
 func Start(state interface{}, handle HandleInit) (*GActor, error) {
 	lock.Lock()
 	defer lock.Unlock()
-	var actor *GActor
-	actor, err := _Start(state, handle)
+	actor := &GActor{}
+	actorStatus := &gActorStatus{}
+	err := doStart(state, handle, actor, actorStatus)
 	if err != nil {
-		return actor, err
+		return nil, err
 	}
-	ActorMap[actor.key] = actor
+	actorMap[actor.key] = actorStatus
 	return actor, nil
 }
 
@@ -37,47 +39,57 @@ func Stop(actorID string, handle Handle) {
 		msgType: STOP,
 		handle:  handle,
 	}
-	if actor, ok := ActorMap[actorID]; ok && actor != nil && actor.msgChan != nil {
+	if actor, ok := actorMap[actorID]; ok && actor != nil && actor.msgChan != nil {
 		actor.msgChan <- gam
 		actor.msgChan = nil
-		ActorMap[actorID] = nil
+		actorMap[actorID] = nil
 	}
 }
 
-// 终止actor
+// 终止actor，默认超时时间为5秒
 func (ga *GActor) Stop(handle Handle) {
+	ga.StopTimeout(handle, 5*time.Second)
+}
+
+// 终止actor，设置指定超时时间
+func (ga *GActor) StopTimeout(handle Handle, timeout time.Duration) {
+	mc := make(chan interface{})
 	gam := GActorMsg{
 		msgType: STOP,
 		handle:  handle,
-	}
-	if ga.msgChan != nil {
-		ga.msgChan <- gam
-		ga.msgChan = nil
-	}
-	ActorMap[ga.key] = nil
-}
-
-// Call函数
-func Call(actorID string, msg interface{}, handle Handle) (interface{}, error) {
-	mc := make(chan interface{})
-	gam := GActorMsg{
-		msgType: CALL,
-		msg:     msg,
-		handle:  handle,
 		reply:   mc,
 	}
-	if actor, ok := ActorMap[actorID]; ok && actor != nil && actor.msgChan != nil {
-		actor.msgChan <- gam
+	if actorMap[ga.key] == nil {
+		return
+	}
+	// 发送终止消息到actor的消息队列
+	actorStatus := actorMap[ga.key]
+	if actorStatus.msgChan != nil {
+		actorStatus.msgChan <- gam
 	} else {
 		close(mc)
-		return nil, fmt.Errorf("actor not found")
+		return
 	}
-	reply := <-mc
-	return reply, nil
+	select {
+	case <-mc:
+		// 关闭回复通道
+		close(mc)
+		break
+	case <-time.After(timeout):
+		// 关闭回复通道
+		close(mc)
+		break
+	}
+	actorMap[ga.key] = nil
 }
 
-// Call函数
+// Call函数，默认超时时间为5秒
 func (ga *GActor) Call(msg interface{}, handle Handle) (interface{}, error) {
+	return ga.CallTimeout(msg, handle, 5*time.Second)
+}
+
+// Call函数，设置指定超时时间
+func (ga *GActor) CallTimeout(msg interface{}, handle Handle, timeout time.Duration) (interface{}, error) {
 	mc := make(chan interface{})
 	gam := GActorMsg{
 		msgType: CALL,
@@ -85,14 +97,28 @@ func (ga *GActor) Call(msg interface{}, handle Handle) (interface{}, error) {
 		handle:  handle,
 		reply:   mc,
 	}
-	if ga.msgChan != nil {
-		ga.msgChan <- gam
+	// 发送消息到actor的消息队列
+	if actorMap[ga.key] == nil {
+		close(mc)
+		return nil, fmt.Errorf("actor not found")
+	}
+	actorStatus := actorMap[ga.key]
+	if actorStatus.msgChan != nil {
+		actorStatus.msgChan <- gam
 	} else {
 		close(mc)
 		return nil, fmt.Errorf("actor not found")
 	}
-	reply := <-mc
-	return reply, nil
+	select {
+	case reply := <-mc:
+		// 关闭回复通道
+		close(mc)
+		return reply, nil
+	case <-time.After(timeout):
+		// 关闭回复通道
+		close(mc)
+		return nil, fmt.Errorf("actor timeout")
+	}
 }
 
 // Info函数
@@ -102,7 +128,7 @@ func Info(actorID string, msg interface{}, handle Handle) error {
 		msg:     msg,
 		handle:  handle,
 	}
-	if actor, ok := ActorMap[actorID]; ok && actor != nil && actor.msgChan != nil {
+	if actor, ok := actorMap[actorID]; ok && actor != nil && actor.msgChan != nil {
 		actor.msgChan <- gam
 	} else {
 		return fmt.Errorf("actor not found")
@@ -117,8 +143,13 @@ func (ga *GActor) Info(msg interface{}, handle Handle) error {
 		msg:     msg,
 		handle:  handle,
 	}
-	if ga.msgChan != nil {
-		ga.msgChan <- gam
+	// 发送消息到actor的消息队列
+	if actorMap[ga.key] == nil {
+		return fmt.Errorf("actor not found")
+	}
+	actorStatus := actorMap[ga.key]
+	if actorStatus.msgChan != nil {
+		actorStatus.msgChan <- gam
 	} else {
 		return fmt.Errorf("actor not found")
 	}
