@@ -1,57 +1,19 @@
 package gwebsocket
 
 import (
+	"errors"
+	"fmt"
 	"main/deps/glog"
+	"net"
 	"net/http"
-	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
-
-var (
-	Version = "1.0.0"
-	// 创建WebSocket Upgrader对象，用于升级HTTP连接为WebSocket连接
-	upgrader = websocket.Upgrader{
-		// 允许所有CORS请求
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-	}
-	// 创建WebSocket服务端对象
-	server = NewServer()
-	// 最大客户端连接数
-	maxConnCount = 2000
-)
-
-// WebSocket客户端结构体
-type GWClient struct {
-	conn *websocket.Conn
-}
-
-// WebSocket服务端结构体
-type GWServer struct {
-	// 客户端连接
-	clients map[*GWClient]bool
-	// 消息广播通道
-	broadcast chan []byte
-	// 读写锁
-	lock sync.RWMutex
-}
-
-// WebSocket服务结构体
-type WSServer struct {
-	addr   string
-	handle http.Handler
-}
 
 // 创建WebSocket对象
 func NewServer() *GWServer {
 	return &GWServer{
 		clients:   make(map[*GWClient]bool),
-		broadcast: make(chan []byte),
+		broadcast: make(chan int),
 	}
 }
 
@@ -62,43 +24,104 @@ func GetServer() *GWServer {
 
 // 创建http监听和接收
 func Start(wsConf map[string]any, wsr []WSRouter) error {
-	domain, err := GetWebSockConf(wsConf)
+	addr, err := GetWebSockConf(wsConf)
+	// glog.Info("WebSocket Service addr:%s", addr)
 	if err != nil {
 		return err
 	}
-	return DoStart(domain, wsr)
+	return doStart(addr, wsr)
 }
 
 // 创建http监听和接收
-func DoStart(addr string, wsr []WSRouter) error {
+func doStart(addr string, wsr []WSRouter) error {
+	stateLock.Lock()
+	defer stateLock.Unlock()
+	if started {
+		return fmt.Errorf("websocket service already started")
+	}
+
 	var wsrouter = DefaultWSRouter()
 	if wsr != nil {
 		wsrouter = wsr
 	}
 	handle := RunMuxRouter(wsrouter)
-	wss := &WSServer{
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	server = NewServer()
+	wss = &WSServer{
 		addr:   addr,
 		handle: handle,
+		server: &http.Server{
+			Addr:    addr,
+			Handler: handle,
+		},
 	}
-	go wss.StartServe()      // 启动websocket服务
-	go server.BroadcastMsg() // 启动广播协程
-	go ShowConnCount()       // 启动显示连接数协程
-	glog.Info("WebSocket Server start up")
+	go wss.StartServe(ln)    // 启动websocket服务
+	go server.broadcastMsg() // 启动广播协程
+	started = true
+	// go ShowConnCount()       // 启动显示连接数协程
+	glog.Info("WebSocket Service started successfully!")
 	return nil
 }
 
 // 运行http服务
-func (wss *WSServer) StartServe() {
-	// 创建http监听
-	err := http.ListenAndServe(wss.addr, wss.handle)
-	if err != nil {
+func (wss *WSServer) StartServe(ln net.Listener) {
+	err := wss.server.Serve(ln)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		glog.Error("http server start error:%s", err.Error())
 	}
 }
 
+// 关闭WebSocket服务
+func Stop() error {
+	stateLock.Lock()
+	if !started || wss == nil || wss.server == nil {
+		stateLock.Unlock()
+		return fmt.Errorf("websocket service not started")
+	}
+	_ws := wss
+	_gws := server
+	started = false
+	stateLock.Unlock()
+
+	// 关闭http服务
+	err := _ws.server.Close()
+	if err != nil {
+		glog.Error("http server close error:%s", err.Error())
+	}
+	_gws.broadcast <- ActionClose
+	glog.Info("WebSocket Service stopped successfully!")
+	return nil
+}
+
 // 获取当前连接数
 func GetConnCount() int {
-	return len(server.clients)
+	return server.ConnCount()
+}
+
+func (gws *GWServer) ConnCount() int {
+	gws.lock.RLock()
+	defer gws.lock.RUnlock()
+	return len(gws.clients)
+}
+
+func (gws *GWServer) IsConnLimitReached() bool {
+	return gws.ConnCount() >= maxConnCount
+}
+
+func (gws *GWServer) AddClient(client *GWClient) {
+	gws.lock.Lock()
+	defer gws.lock.Unlock()
+	gws.clients[client] = true
+}
+
+func (gws *GWServer) RemoveClient(client *GWClient) {
+	gws.lock.Lock()
+	defer gws.lock.Unlock()
+	delete(gws.clients, client)
 }
 
 // TODO: 瞬间连接、瞬间断开 无法承受

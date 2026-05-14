@@ -4,12 +4,6 @@ import (
 	"net/http"
 )
 
-// http路由结构体
-type HRouter struct {
-	Path   string                                   // 路由路径
-	Handle func(http.ResponseWriter, *http.Request) // 路由处理函数
-}
-
 // 获取http路由
 func DefaultHRouter() []HRouter {
 	return []HRouter{}

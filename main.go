@@ -2,15 +2,17 @@ package main
 
 import (
 	"fmt"
+	"main/deps/ghttp"
 	"main/deps/glog"
-	"main/deps/gtcp"
 	"main/src/gconf"
+	"main/src/platform"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
 func main() {
+	// 加载配置文件
 	err := gconf.LoadConf()
 	if err != nil {
 		fmt.Println(err)
@@ -23,10 +25,17 @@ func main() {
 
 	// 启动服务
 	// ...
-	err = gtcp.NewTcpPool(gconf.TcpConf).Start(Init)
-	if err != nil {
-		glog.CrashExit(err.Error())
+	IP, ok := gconf.HttpConf["ip"].(string)
+	if !ok {
+		glog.CrashExit("HttpConf ip is not string")
 	}
+	Port, ok := gconf.HttpConf["port"].(float64)
+	if !ok {
+		glog.CrashExit("HttpConf port is not float64")
+	}
+	URL := fmt.Sprintf("%s:%.0f", IP, Port)
+	ghttp.Start(URL, platform.GetHRouter())
+
 	glog.Info("Server start success!")
 	// 监听退出信号
 	c := make(chan os.Signal, 1)
@@ -39,14 +48,4 @@ func main() {
 	// 关闭相关服务完成
 
 	glog.Stop()
-}
-
-// 初始化消息路由
-func Init(bigEndian bool, msgChan chan []byte) {
-	// 业务...
-	glog.Info("Init success!")
-	for {
-		// 处理消息
-		<-msgChan
-	}
 }

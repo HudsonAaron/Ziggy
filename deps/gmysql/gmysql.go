@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	Version = "1.0.0" // 版本号
-	DBConn  *sql.DB
+	Version      = "1.0.0"            // 版本号
+	DBConn       *sql.DB              // 数据库连接
+	PrepareStmts map[string]*sql.Stmt // 预编译SQL语句
 )
 
 // 连接数据库连接
@@ -46,8 +47,8 @@ func Stop() {
 }
 
 // 执行SQL语句
-func Exec(sql string) (sql.Result, error) {
-	return DBConn.Exec(sql)
+func Exec(sql string, args ...any) (sql.Result, error) {
+	return DBConn.Exec(sql, args...)
 }
 
 // 执行SQL语句，使用事务
@@ -68,6 +69,6 @@ func ExecTx(sqls []string) error {
 }
 
 // 查询SQL语句
-func Query(sql string) (*sql.Rows, error) {
-	return DBConn.Query(sql)
+func Query(sql string, args ...any) (*sql.Rows, error) {
+	return DBConn.Query(sql, args...)
 }

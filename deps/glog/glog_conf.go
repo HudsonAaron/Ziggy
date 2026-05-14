@@ -1,6 +1,9 @@
 package glog
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // 获取日志路径
 func GetFilePath(logPath interface{}) (string, error) {
@@ -54,44 +57,35 @@ type LogFile struct {
 	filename string
 }
 
-// 获取日志文件配置
+// 获取日志文件配置（修复类型断言安全问题）
 func GetLogFile(logFile interface{}) ([]LogFile, error) {
-	// 首先，尝试断言 logFile 为 []map[string]string 类型
-	var logSlice []map[string]string
-	var ok bool
-	if logSlice, ok = logFile.([]map[string]string); ok {
-		// 如果成功，直接使用 logSlice
-	} else {
-		// 如果失败，尝试断言为 []interface{} 类型
-		var logInterfaceSlice []interface{}
-		if logInterfaceSlice, ok = logFile.([]interface{}); !ok {
-			return nil, fmt.Errorf("logFile is not a slice")
-		}
-		// 将 []interface{} 转换为 []map[string]string
-		logSlice = make([]map[string]string, len(logInterfaceSlice))
-		for i, elem := range logInterfaceSlice {
-			lm, ok := elem.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("element at index %d is not a map[string]string", i)
-			}
-			logMap := make(map[string]string)
-			for k, v := range lm {
-				logMap[k] = v.(string)
-			}
-			logSlice[i] = logMap
-		}
+	if logFile == nil {
+		return nil, fmt.Errorf("logFile config is nil")
 	}
 
-	// 创建一个结果切片，长度与 logSlice 相同
-	result := make([]LogFile, len(logSlice))
+	// 支持配置文件中 []map[string]any 或 []map[string]string
+	v := reflect.ValueOf(logFile)
+	if v.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("logFile is not a slice")
+	}
 
-	// 遍历 logSlice 中的每个元素
-	for i, elem := range logSlice {
-		// 从 map 中获取 level 和 filename
-		level := elem["level"]
-		filename := elem["filename"]
-
-		// 将 LogFile 添加到结果切片中
+	result := make([]LogFile, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		item := v.Index(i).Interface()
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			m2, ok2 := item.(map[string]string)
+			if !ok2 {
+				return nil, fmt.Errorf("element at index %d is not a map", i)
+			}
+			result[i] = LogFile{
+				level:    m2["level"],
+				filename: m2["filename"],
+			}
+			continue
+		}
+		level, _ := m["level"].(string)
+		filename, _ := m["filename"].(string)
 		result[i] = LogFile{
 			level:    level,
 			filename: filename,

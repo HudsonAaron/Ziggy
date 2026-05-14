@@ -8,13 +8,15 @@ import (
 	"main/deps/glog"
 	"net/http"
 	"net/url"
+	"strconv"
+	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 func _TestGWS() {
-	_ = DoStart("127.0.0.1:8080/", _GetWSRouter())
+	_ = doStart("127.0.0.1:8080", _GetWSRouter())
 }
 
 func _GetWSRouter() []WSRouter {
@@ -81,7 +83,7 @@ func WSClient(n int) {
 
 	for {
 		msg := map[string]any{
-			"hello": "i'm " + string(n),
+			"hello": "i'm " + strconv.Itoa(n),
 			"ok":    true,
 		}
 		message, _ := json.Marshal(msg)
@@ -96,5 +98,44 @@ func WSClient(n int) {
 		// fmt.Printf("recv: %s", message)
 		randNum := 10
 		time.Sleep(time.Second * time.Duration(randNum))
+	}
+}
+
+func TestStartStopLifecycle(t *testing.T) {
+	err := doStart("127.0.0.1:0", _GetWSRouter())
+	if err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+
+	err = doStart("127.0.0.1:0", _GetWSRouter())
+	if err == nil {
+		t.Fatalf("expected repeated start to fail")
+	}
+
+	err = Stop()
+	if err != nil {
+		t.Fatalf("stop failed: %v", err)
+	}
+
+	err = Stop()
+	if err == nil {
+		t.Fatalf("expected repeated stop to fail")
+	}
+}
+
+func TestBroadcastCloseClearsClients(t *testing.T) {
+	gws := NewServer()
+	gws.AddClient(&GWClient{})
+	gws.AddClient(&GWClient{})
+	if got := gws.ConnCount(); got != 2 {
+		t.Fatalf("unexpected initial conn count: %d", got)
+	}
+
+	go gws.broadcastMsg()
+	gws.broadcast <- ActionClose
+	time.Sleep(50 * time.Millisecond)
+
+	if got := gws.ConnCount(); got != 0 {
+		t.Fatalf("expected clients to be cleared, got: %d", got)
 	}
 }

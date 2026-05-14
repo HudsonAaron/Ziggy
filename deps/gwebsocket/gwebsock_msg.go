@@ -7,19 +7,20 @@ type GWSMsg struct {
 }
 
 // 监听消息广播通道
-func (gws *GWServer) BroadcastMsg() {
+func (gws *GWServer) broadcastMsg() {
 	for {
-		msg := <-gws.broadcast
-		for client := range gws.clients {
-			if client.conn != nil {
-				err := client.conn.WriteJSON(msg)
-				if err != nil {
-					client.conn.Close()
-					delete(gws.clients, client)
+		action := <-gws.broadcast
+		switch action {
+		case ActionClose:
+			gws.lock.Lock()
+			for client := range gws.clients {
+				if client.Conn != nil {
+					client.Conn.Close()
 				}
-			} else {
 				delete(gws.clients, client)
 			}
+			gws.lock.Unlock()
+			return
 		}
 	}
 }

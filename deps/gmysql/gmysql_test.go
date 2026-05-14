@@ -66,3 +66,42 @@ func QueryTable(tbn string) {
 		}
 	}
 }
+
+// 存储过程用例
+func PrepareSQL() {
+	// 首先删除旧的存储过程（如果存在）
+	_, err := gmysql.Exec("DROP PROCEDURE IF EXISTS selectRole")
+	if err != nil {
+		glog.Error("删除旧存储过程失败: %s", err.Error())
+	}
+	// 不使用prepared statement创建存储过程，直接使用Exec
+	_, err = Exec("create procedure if not exists selectRole() begin select roleId,nickname,mpId from role; end")
+	if err != nil {
+		glog.Error(err.Error())
+		return
+	}
+
+	// 调用存储过程时使用Query而不是CallPrepare
+	rows, err := Query("call selectRole()")
+	if err != nil {
+		glog.Error(err.Error())
+		return
+	}
+	defer rows.Close()
+	// 遍历结果集
+	for rows.Next() {
+		var roleId int
+		var nickname string
+		var MpId int
+		err := rows.Scan(&roleId, &nickname, &MpId)
+		if err != nil {
+			glog.Error(err.Error())
+			return
+		}
+		glog.Info("ID: %d, Name: %s, MpId: %d", roleId, nickname, MpId)
+	}
+
+	// 处理查询结果
+	glog.Info("存储过程调用成功")
+	// 这里可以添加对结果集的处理代码
+}

@@ -3,15 +3,7 @@ package gwebsocket
 import (
 	"main/deps/glog"
 	"net/http"
-
-	"github.com/gorilla/websocket"
 )
-
-// WebSocket路由结构体
-type WSRouter struct {
-	Path   string                                                    // 路由路径
-	Handle func(http.ResponseWriter, *http.Request, *websocket.Conn) // 路由处理函数
-}
 
 // 获取http路由
 func DefaultWSRouter() []WSRouter {
@@ -32,7 +24,7 @@ func RunMuxRouter(wsrouter []WSRouter) http.Handler {
 
 // 实际处理函数
 func (hr *WSRouter) ActualHandle(w http.ResponseWriter, r *http.Request) {
-	if len(server.clients) >= maxConnCount {
+	if server.IsConnLimitReached() {
 		return
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -40,14 +32,10 @@ func (hr *WSRouter) ActualHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
-	server.lock.Lock()
 	// 连接成功
-	client := &GWClient{conn: conn}
-	server.clients[client] = true
-	server.lock.Unlock()
+	client := &GWClient{Conn: conn}
+	server.AddClient(client)
 	hr.Handle(w, r, conn)
-	server.lock.Lock()
 	glog.Info("websocket 连接关闭")
-	delete(server.clients, client)
-	server.lock.Unlock()
+	server.RemoveClient(client)
 }
