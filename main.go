@@ -2,10 +2,8 @@ package main
 
 import (
 	"fmt"
-	"main/deps/ghttp"
 	"main/deps/glog"
 	"main/src/gconf"
-	"main/src/platform"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,16 +23,6 @@ func main() {
 
 	// 启动服务
 	// ...
-	IP, ok := gconf.HttpConf["ip"].(string)
-	if !ok {
-		glog.CrashExit("HttpConf ip is not string")
-	}
-	Port, ok := gconf.HttpConf["port"].(float64)
-	if !ok {
-		glog.CrashExit("HttpConf port is not float64")
-	}
-	URL := fmt.Sprintf("%s:%.0f", IP, Port)
-	ghttp.Start(URL, platform.GetHRouter())
 
 	glog.Info("Server start success!")
 	// 监听退出信号
