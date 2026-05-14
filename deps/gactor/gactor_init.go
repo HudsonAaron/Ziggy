@@ -18,11 +18,15 @@ type GActorMsg struct {
 // ActorState结构体
 type GActorState interface{}
 
-// Actor结构体
-type GActor struct {
-	key     string         // actor 主键
+// Actor内部结构体，用于存储actor的状态和消息队列
+type gActorStatus struct {
 	state   GActorState    // actor 状态
 	msgChan chan GActorMsg // actor message queue
+}
+
+// Actor结构体
+type GActor struct {
+	key string // actor 主键
 }
 
 const (
@@ -49,23 +53,21 @@ func GetActorKey(data interface{}) (string, error) {
 }
 
 // 初始化结构体
-func _Start(state interface{}, handle HandleInit) (*GActor, error) {
+func doStart(state interface{}, handle HandleInit, actor *GActor, actorStatus *gActorStatus) error {
 	actorID, err := GetActorKey(state)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if ActorMap[actorID] != nil {
-		return ActorMap[actorID], fmt.Errorf("actor already started")
+	if actorMap[actorID] != nil {
+		return fmt.Errorf("actor already started")
 	}
-	ga := &GActor{
-		key:     actorID,
-		msgChan: make(chan GActorMsg, 100),
-		state:   state,
-	}
-	err = ga.HandleInit(handle)
+	actor.key = actorID
+	err = actorStatus.HandleInit(handle)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	go ga.Loop()
-	return ga, nil
+	actorStatus.state = state
+	actorStatus.msgChan = make(chan GActorMsg, MsgQueueSize)
+	go actorStatus.Loop()
+	return nil
 }
