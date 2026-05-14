@@ -15,7 +15,6 @@ func Start(state interface{}, handle HandleInit) (*GActor, error) {
 	err := doStart(state, handle, actor, actorStatus)
 	if err != nil {
 		return nil, err
-		return nil, err
 	}
 	setActorStatus(actor.key, actorStatus)
 	return actor, nil
@@ -90,7 +89,6 @@ func (ga *GActor) StopTimeout(handle Handle, timeout time.Duration) {
 	}
 }
 
-// Call函数，默认超时时间为5秒
 // Call函数，默认超时时间为5秒
 func (ga *GActor) Call(msg interface{}, handle Handle) (interface{}, error) {
 	return ga.CallTimeout(msg, handle, 5*time.Second)

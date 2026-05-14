@@ -28,7 +28,6 @@ func (ga *gActorStatus) handleCall(gam *GActorMsg) {
 	reply, state, err := gam.handle(gam.msg, ga.state)
 	if err != nil {
 		glog.Error("HandleCall err: %v", err)
-		glog.Error("HandleCall err: %v", err)
 		return
 	}
 	ga.resetState(state)
@@ -43,10 +42,8 @@ func (ga *gActorStatus) handleInfo(gam *GActorMsg) {
 		return
 	}
 	// 传递state的副本，避免回调函数直接修改原始state
-	// 传递state的副本，避免回调函数直接修改原始state
 	_, state, err := gam.handle(gam.msg, ga.state)
 	if err != nil {
-		glog.Error("HandleInfo err: %v", err)
 		glog.Error("HandleInfo err: %v", err)
 		return
 	}
@@ -61,10 +58,7 @@ func (ga *gActorStatus) terminate(gam *GActorMsg) {
 	}
 	// 传递state的副本，避免回调函数直接修改原始state
 	reply, state, err := gam.handle(gam.msg, ga.state)
-	// 传递state的副本，避免回调函数直接修改原始state
-	reply, state, err := gam.handle(gam.msg, ga.state)
 	if err != nil {
-		glog.Error("Terminate err: %v", err)
 		glog.Error("Terminate err: %v", err)
 		return
 	}

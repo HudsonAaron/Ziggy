@@ -136,7 +136,6 @@ func (lg *Logger) handleMsg() {
 // 拼接日志路径
 func GetLogPath(logPath string, logName string) string {
 	dateTime := gutil.FormatTimeByLayout("2006-01-02")
-	dateTime := gutil.FormatTimeByLayout("2006-01-02")
 	return filepath.Join(logPath, logName+"_"+dateTime+".log")
 }
 
