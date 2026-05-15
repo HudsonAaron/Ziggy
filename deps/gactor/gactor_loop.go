@@ -3,38 +3,29 @@ package gactor
 import "fmt"
 
 // loop回调
-func (ga *gActorStatus) loop() {
-	// 退出时清理timer和actor状态
+func (ga *gActorStatus[S]) loop() {
+	actor := &GActor[S]{key: ga.key, status: ga}
 	defer func() {
-		ga.timerMap.Range(func(key, value interface{}) bool {
-			timer := value.(*gActorTimer)
-			if timer.stopC != nil {
-				close(timer.stopC)
-			}
-			ga.timerMap.Delete(key)
-			return true
-		})
+		close(ga.timerDone)
 		delActorStatus(ga.key)
 	}()
-	// 循环处理消息
 	for {
 		gam := <-ga.msgChan
-		// 处理消息
 		switch gam.msgType {
-		case ADDTIMER: // add timer回调类型
+		case ADDTIMER:
 			ga.addTimer(&gam)
 			continue
-		case CANCELTIMER: // cancel timer回调类型
+		case CANCELTIMER:
 			ga.cancelTimer(&gam)
 			continue
-		case CALL: // call回调类型
-			ga.handleCall(&gam)
+		case CALL:
+			ga.handleCall(actor, &gam)
 			continue
-		case INFO: // info回调类型
-			ga.handleInfo(&gam)
+		case INFO:
+			ga.handleInfo(actor, &gam)
 			continue
-		case STOP: // stop回调类型
-			ga.terminate(&gam)
+		case STOP:
+			ga.terminate(actor, &gam)
 			return
 		default:
 			fmt.Println("unknown msgType:", gam.msgType)

@@ -1,133 +1,135 @@
 package gactor
 
 import (
+	"container/heap"
 	"main/deps/glog"
 	"main/deps/gutil"
 	"time"
 )
 
 // HandleInit回调函数
-func (ga *gActorStatus) handleInit(handle func(...interface{}) (GActorState, error)) error {
+func (ga *gActorStatus[S]) handleInit(actor *GActor[S], handle HandleInit[S]) error {
 	if handle == nil {
 		return nil
 	}
-	state, err := handle(ga.state)
+	state, err := handle(actor, ga.state)
 	if err != nil {
 		return err
 	}
-	ga.resetState(state)
+	ga.state = state
 	return nil
 }
 
 // HandleCall回调函数
-func (ga *gActorStatus) handleCall(gam *GActorMsg) {
+func (ga *gActorStatus[S]) handleCall(actor *GActor[S], gam *GActorMsg[S]) {
 	if gam.handle == nil {
 		return
 	}
-	// 传递state的副本，避免回调函数直接修改原始state
-	reply, state, err := gam.handle(gam.msg, ga.state)
+	reply, state, err := gam.handle(actor, gam.msg, ga.state)
 	if err != nil {
 		glog.Error("HandleCall err: %v", err)
 		return
 	}
-	ga.resetState(state)
+	ga.state = state
 	if gam.reply != nil {
-		safeReply(gam.reply, reply)
+		gam.reply.send(reply)
 	}
 }
 
 // HandleInfo回调函数
-func (ga *gActorStatus) handleInfo(gam *GActorMsg) {
+func (ga *gActorStatus[S]) handleInfo(actor *GActor[S], gam *GActorMsg[S]) {
 	if gam.handle == nil {
 		return
 	}
-	// 传递state的副本，避免回调函数直接修改原始state
-	_, state, err := gam.handle(gam.msg, ga.state)
+	_, state, err := gam.handle(actor, gam.msg, ga.state)
 	if err != nil {
 		glog.Error("HandleInfo err: %v", err)
 		return
 	}
-	ga.resetState(state)
+	ga.state = state
 }
 
 // Terminate回调函数
-func (ga *gActorStatus) terminate(gam *GActorMsg) {
+func (ga *gActorStatus[S]) terminate(actor *GActor[S], gam *GActorMsg[S]) {
 	if gam.handle == nil {
-		safeReply(gam.reply, nil)
+		if gam.reply != nil {
+			gam.reply.send(nil)
+		}
 		return
 	}
-	// 传递state的副本，避免回调函数直接修改原始state
-	reply, state, err := gam.handle(gam.msg, ga.state)
+	reply, state, err := gam.handle(actor, gam.msg, ga.state)
 	if err != nil {
 		glog.Error("Terminate err: %v", err)
 		return
 	}
-	ga.resetState(state)
+	ga.state = state
 	if gam.reply != nil {
-		safeReply(gam.reply, reply)
-	}
-}
-
-// 重置state
-func (ga *gActorStatus) resetState(state interface{}) {
-	switch state := any(state).(type) {
-	case GActorState:
-		ga.state = state
-		return
-	default:
-		return
+		gam.reply.send(reply)
 	}
 }
 
 // 添加timer
-func (ga *gActorStatus) addTimer(gam *GActorMsg) {
-	gTimer := gam.msg.(*gActorTimer)
-	ga.timerMap.Store(gTimer.id, gTimer)
-	// 启动timer
-	go gTimer.timerCallback(&GActor{key: ga.key})
+func (ga *gActorStatus[S]) addTimer(gam *GActorMsg[S]) {
+	gTimer := gam.msg.(*gActorTimer[S])
+	heap.Push(&ga.timers, gTimer)
+	select {
+	case ga.timerWakeup <- struct{}{}:
+	default:
+	}
 }
 
-// timer 过期回调函数
-func (t *gActorTimer) timerCallback(ga *GActor) {
-	for {
-		nowTime := gutil.TimestampMilli()
-		select {
-		case <-t.stopC:
-			return
-		case <-time.After(time.Duration(t.expireAt-nowTime) * time.Millisecond):
-			ga.Info(t.msg, t.handle)
-			ga.CancelTimer(t.id)
+// timer 过期回调函数 — 直接投递消息到状态机的消息队列
+func (t *gActorTimer[S]) fire(ga *gActorStatus[S]) {
+	gam := GActorMsg[S]{
+		msgType: INFO,
+		msg:     t.msg,
+		handle:  t.handle,
+	}
+	ga.msgChan <- gam
+}
+
+// 取消timer
+func (ga *gActorStatus[S]) cancelTimer(gam *GActorMsg[S]) {
+	timerId := gam.msg.(string)
+	for i, t := range ga.timers {
+		if t.id == timerId {
+			ga.timers[i] = ga.timers[len(ga.timers)-1]
+			ga.timers = ga.timers[:len(ga.timers)-1]
+			heap.Init(&ga.timers)
 			return
 		}
 	}
 }
 
-// 取消timer
-func (ga *gActorStatus) cancelTimer(gam *GActorMsg) {
-	timerId := gam.msg.(string)
-	ga.timerMap.Range(func(key, value interface{}) bool {
-		keyStr := key.(string)
-		if keyStr != timerId {
-			return true
-		}
-		timer := value.(*gActorTimer)
-		if timer.id == timerId {
-			if timer.stopC != nil {
-				close(timer.stopC)
+// 启动timer调度器 — 单goroutine调度所有timer
+func (ga *gActorStatus[S]) startTimerScheduler() {
+	for {
+		if len(ga.timers) == 0 {
+			select {
+			case <-ga.timerWakeup:
+				continue
+			case <-ga.timerDone:
+				return
 			}
-			// 移除timer
-			ga.timerMap.Delete(key)
-			return false
 		}
-		return true
-	})
-}
 
-// 安全地向reply channel发送数据，避免向已关闭的channel发送数据导致panic
-func safeReply(reply chan interface{}, data interface{}) {
-	select {
-	case reply <- data:
-	case <-time.After(100 * time.Millisecond): // 防止永久阻塞
-		// 如果发送超时，说明接收方可能已经不再等待，可以忽略
+		next := ga.timers[0]
+		wait := next.expireAt - gutil.TimestampMilli()
+
+		if wait <= 0 {
+			_ = heap.Pop(&ga.timers)
+			next.fire(ga)
+			continue
+		}
+
+		select {
+		case <-time.After(time.Duration(wait) * time.Millisecond):
+			_ = heap.Pop(&ga.timers)
+			next.fire(ga)
+		case <-ga.timerWakeup:
+			continue
+		case <-ga.timerDone:
+			return
+		}
 	}
 }

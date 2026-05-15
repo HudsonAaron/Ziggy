@@ -5,66 +5,97 @@ import (
 	"encoding/hex"
 	"fmt"
 	"main/deps/gutil"
-	"sync"
 )
 
 // 获取actor 主键
 func getActorKey(data interface{}) (string, error) {
-	// 将数据转换为字节数组
 	datastr := gutil.ConvToString(data)
 	dataBytes := []byte(datastr)
-	// 创建一个新的 MD5 哈希对象
 	hash := md5.New()
-	// 写入数据到哈希对象
 	hash.Write(dataBytes)
-	// 计算哈希值
 	hashBytes := hash.Sum(nil)
-	// 将哈希值转换为十六进制字符串
 	actorMD5 := hex.EncodeToString(hashBytes)
 	return actorMD5, nil
 }
 
 // 初始化结构体
-func doStart(state interface{}, handle HandleInit, actor *GActor, actorStatus *gActorStatus) error {
+func doStart[S any](state S, handle HandleInit[S], actor *GActor[S], actorStatus *gActorStatus[S]) error {
 	actorID, err := getActorKey(state)
 	if err != nil {
 		return err
 	}
-	_, ok := getActorStatus(actorID)
+	_, ok := getAnyActorStatus(actorID)
 	if ok {
 		return fmt.Errorf("actor already started")
 	}
 	actor.key = actorID
+	actor.status = actorStatus
+	actorStatus.key = actorID
 	actorStatus.state = state
-	err = actorStatus.handleInit(handle)
+	actorStatus.msgChan = make(chan GActorMsg[S], MsgQueueSize)
+	actorStatus.timers = make(timerHeap[S], 0)
+	actorStatus.timerWakeup = make(chan struct{}, 1)
+	actorStatus.timerDone = make(chan struct{})
+	err = actorStatus.handleInit(actor, handle)
 	if err != nil {
 		return err
 	}
-	actorStatus.key = actorID
-	actorStatus.msgChan = make(chan GActorMsg, MsgQueueSize)
-	actorStatus.timerMap = &sync.Map{}
+	go actorStatus.startTimerScheduler()
 	go actorStatus.loop()
 	return nil
 }
 
-// 获取actor状态
-func getActorStatus(key string) (*gActorStatus, bool) {
-	lock.RLock()
-	v, ok := actorMap[key]
-	lock.RUnlock()
-	return v, ok && v != nil
+func (r *replyOnce) send(data interface{}) {
+	r.once.Do(func() {
+		select {
+		case r.ch <- data:
+		default:
+			// channel 满了或已关闭，安全丢弃
+		}
+	})
+}
+
+// timerHeap定时器数量
+func (h timerHeap[S]) Len() int { return len(h) }
+
+// timerHeap定时器比较
+func (h timerHeap[S]) Less(i, j int) bool { return h[i].expireAt < h[j].expireAt }
+
+// timerHeap定时器交换
+func (h timerHeap[S]) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
+// timerHeap定时器添加
+func (h *timerHeap[S]) Push(x any) { *h = append(*h, x.(*gActorTimer[S])) }
+
+// timerHeap定时器弹出
+func (h *timerHeap[S]) Pop() any {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
+// 获取actor状态（类型安全版本）
+func getActorStatus[S any](key string) (*gActorStatus[S], bool) {
+	v, ok := actorMap.Load(key)
+	if !ok {
+		return nil, false
+	}
+	return v.(*gActorStatus[S]), true
+}
+
+// 获取actor状态（任意类型版本，用于 key 查找）
+func getAnyActorStatus(key string) (any, bool) {
+	return actorMap.Load(key)
 }
 
 // 设置actor状态
-func setActorStatus(key string, v *gActorStatus) {
-	lock.Lock()
-	actorMap[key] = v
-	lock.Unlock()
+func setActorStatus[S any](key string, v *gActorStatus[S]) {
+	actorMap.Store(key, v)
 }
 
 // 删除actor状态
 func delActorStatus(key string) {
-	lock.Lock()
-	delete(actorMap, key)
-	lock.Unlock()
+	actorMap.Delete(key)
 }

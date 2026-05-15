@@ -9,9 +9,9 @@ import (
 )
 
 // 创建actor
-func Start(state interface{}, handle HandleInit) (*GActor, error) {
-	actor := &GActor{}
-	actorStatus := &gActorStatus{}
+func Start[S any](state S, handle HandleInit[S]) (*GActor[S], error) {
+	actor := &GActor[S]{}
+	actorStatus := &gActorStatus[S]{}
 	err := doStart(state, handle, actor, actorStatus)
 	if err != nil {
 		return nil, err
@@ -20,96 +20,88 @@ func Start(state interface{}, handle HandleInit) (*GActor, error) {
 	return actor, nil
 }
 
-// 终止actor
-func Stop(actorID string, handle Handle) {
-	gam := GActorMsg{
-		msgType: STOP,
-		handle:  handle,
-	}
-	actorStatus, ok := getActorStatus(actorID)
-	if !ok {
+// 终止actor（通过 actor 引用，类型安全）
+func Stop[S any](actor *GActor[S]) {
+	if actor.status == nil {
 		return
 	}
-	if actorStatus.msgChan != nil {
-		actorStatus.msgChan <- gam
+	mc := make(chan interface{}, 1)
+	gam := GActorMsg[S]{
+		msgType: STOP,
+		reply:   &replyOnce{ch: mc},
+	}
+	if actor.status.msgChan != nil {
+		actor.status.msgChan <- gam
+		<-mc
 	}
 }
 
-// 获取State
-func GetState(actor *GActor) interface{} {
-	actorStatus, ok := getActorStatus(actor.key)
-	if !ok {
-		return nil
+// 获取State（类型安全版本）
+func GetState[S any](actor *GActor[S]) S {
+	if actor.status == nil {
+		var zero S
+		return zero
 	}
-	return actorStatus.state
+	return actor.status.state
 }
 
-// 获取status
-func GetStatus(actor *GActor) string {
-	actorStatus, ok := getActorStatus(actor.key)
-	if !ok {
+// 获取status（类型安全版本）
+func GetStatus[S any](actor *GActor[S]) string {
+	if actor.status == nil {
 		return "actor not found"
 	}
-	timerMapStr := []string{}
-	actorStatus.timerMap.Range(func(key, value interface{}) bool {
-		timerMapStr = append(timerMapStr, fmt.Sprintf("{key:%v, value:%v}", key, value))
-		return true
-	})
-	return fmt.Sprintf("{\n\tstate:%v, \n\ttimerMap:{\n\t\t%v\n}}", actorStatus.state, strings.Join(timerMapStr, "\n\t\t\t"))
+	timerStrs := []string{}
+	for _, t := range actor.status.timers {
+		timerStrs = append(timerStrs, fmt.Sprintf("{id:%v, expireAt:%v}", t.id, t.expireAt))
+	}
+	return fmt.Sprintf("{\n\tstate:%v, \n\ttimers:{\n\t\t%v\n}}", actor.status.state, strings.Join(timerStrs, "\n\t\t\t"))
 }
 
 // 终止actor，默认超时时间为5秒
-func (ga *GActor) Stop(handle Handle) {
+func (ga *GActor[S]) Stop(handle Handle[S]) {
 	ga.StopTimeout(handle, 5*time.Second)
 }
 
 // 终止actor，设置指定超时时间
-func (ga *GActor) StopTimeout(handle Handle, timeout time.Duration) {
-	actorStatus, ok := getActorStatus(ga.key)
-	if !ok {
+func (ga *GActor[S]) StopTimeout(handle Handle[S], timeout time.Duration) {
+	if ga.status == nil {
 		return
 	}
 	mc := make(chan interface{}, 1)
-	gam := GActorMsg{
+	gam := GActorMsg[S]{
 		msgType: STOP,
 		handle:  handle,
-		reply:   mc,
+		reply:   &replyOnce{ch: mc},
 		timeout: timeout,
 	}
-	if actorStatus.msgChan != nil {
-		actorStatus.msgChan <- gam
-	} else {
-		return
+	if ga.status.msgChan != nil {
+		ga.status.msgChan <- gam
 	}
 	select {
 	case <-mc:
-		break
 	case <-time.After(timeout):
-		break
 	}
 }
 
 // Call函数，默认超时时间为5秒
-func (ga *GActor) Call(msg interface{}, handle Handle) (interface{}, error) {
+func (ga *GActor[S]) Call(msg interface{}, handle Handle[S]) (interface{}, error) {
 	return ga.CallTimeout(msg, handle, 5*time.Second)
 }
 
 // Call函数，设置指定超时时间
-func (ga *GActor) CallTimeout(msg interface{}, handle Handle, timeout time.Duration) (interface{}, error) {
-	// 发送消息到actor的消息队列
-	actorStatus, ok := getActorStatus(ga.key)
-	if !ok {
+func (ga *GActor[S]) CallTimeout(msg interface{}, handle Handle[S], timeout time.Duration) (interface{}, error) {
+	if ga.status == nil {
 		return nil, fmt.Errorf("actor not found")
 	}
 	mc := make(chan interface{}, 1)
-	gam := GActorMsg{
+	gam := GActorMsg[S]{
 		msgType: CALL,
 		msg:     msg,
 		handle:  handle,
-		reply:   mc,
+		reply:   &replyOnce{ch: mc},
 	}
-	if actorStatus.msgChan != nil {
-		actorStatus.msgChan <- gam
+	if ga.status.msgChan != nil {
+		ga.status.msgChan <- gam
 	} else {
 		return nil, fmt.Errorf("actor not found")
 	}
@@ -122,19 +114,17 @@ func (ga *GActor) CallTimeout(msg interface{}, handle Handle, timeout time.Durat
 }
 
 // Info函数
-func (ga *GActor) Info(msg interface{}, handle Handle) error {
-	// 发送消息到actor的消息队列
-	actorStatus, ok := getActorStatus(ga.key)
-	if !ok {
+func (ga *GActor[S]) Info(msg interface{}, handle Handle[S]) error {
+	if ga.status == nil {
 		return fmt.Errorf("actor not found")
 	}
-	gam := GActorMsg{
+	gam := GActorMsg[S]{
 		msgType: INFO,
 		msg:     msg,
 		handle:  handle,
 	}
-	if actorStatus.msgChan != nil {
-		actorStatus.msgChan <- gam
+	if ga.status.msgChan != nil {
+		ga.status.msgChan <- gam
 	} else {
 		return fmt.Errorf("actor not found")
 	}
@@ -142,16 +132,11 @@ func (ga *GActor) Info(msg interface{}, handle Handle) error {
 }
 
 // 创建timer, 内部走Info函数
-func (ga *GActor) SendAfter(timeout time.Duration, msg interface{}, handle Handle) (string, error) {
-	// 发送消息到actor的消息队列
-	actorStatus, ok := getActorStatus(ga.key)
-	if !ok {
+func (ga *GActor[S]) SendAfter(timeout time.Duration, msg interface{}, handle Handle[S]) (string, error) {
+	if ga.status == nil {
 		return "", fmt.Errorf("actor not found")
 	}
-	// 创建timer
-	gTimer := &gActorTimer{
-		id:       fmt.Sprintf("%v", msg),
-		stopC:    make(chan int),
+	gTimer := &gActorTimer[S]{
 		expireAt: gutil.TimestampMilli() + timeout.Milliseconds(),
 		msg:      msg,
 		handle:   handle,
@@ -162,14 +147,13 @@ func (ga *GActor) SendAfter(timeout time.Duration, msg interface{}, handle Handl
 		return "", err
 	}
 	gTimer.id = timerId
-	// 添加timer
-	gam := GActorMsg{
+	gam := GActorMsg[S]{
 		msgType: ADDTIMER,
 		timeout: timeout,
 		msg:     gTimer,
 	}
-	if actorStatus.msgChan != nil {
-		actorStatus.msgChan <- gam
+	if ga.status.msgChan != nil {
+		ga.status.msgChan <- gam
 	} else {
 		return "", fmt.Errorf("actor not found")
 	}
@@ -177,32 +161,28 @@ func (ga *GActor) SendAfter(timeout time.Duration, msg interface{}, handle Handl
 }
 
 // 取消timer
-func (ga *GActor) CancelTimer(timerID string) {
-	// 发送消息到actor的消息队列
-	actorStatus, ok := getActorStatus(ga.key)
-	if !ok {
+func (ga *GActor[S]) CancelTimer(timerID string) {
+	if ga.status == nil {
 		return
 	}
-	gam := GActorMsg{
+	gam := GActorMsg[S]{
 		msgType: CANCELTIMER,
 		msg:     timerID,
 	}
-	if actorStatus.msgChan != nil {
-		actorStatus.msgChan <- gam
-	} else {
-		return
+	if ga.status.msgChan != nil {
+		ga.status.msgChan <- gam
 	}
 }
 
 // 获取timer剩余时间
-func (ga *GActor) GetTimerTTL(timerID string) time.Duration {
-	actorStatus, ok := getActorStatus(ga.key)
-	if !ok {
+func (ga *GActor[S]) GetTimerTTL(timerID string) time.Duration {
+	if ga.status == nil {
 		return 0
 	}
-	timer, ok := actorStatus.timerMap.Load(timerID)
-	if !ok {
-		return 0
+	for _, t := range ga.status.timers {
+		if t.id == timerID {
+			return time.Duration(t.expireAt-gutil.TimestampMilli()) * time.Millisecond
+		}
 	}
-	return time.Duration(timer.(*gActorTimer).expireAt-gutil.TimestampMilli()) * time.Millisecond
+	return 0
 }

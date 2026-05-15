@@ -6,10 +6,9 @@ import (
 )
 
 var (
-	Version      = "1.0.4"                        // 版本号
-	MsgQueueSize = 100                            // 消息队列大小
-	actorMap     = make(map[string]*gActorStatus) // actor map
-	lock         sync.RWMutex
+	Version      = "1.1.1" // 版本号
+	MsgQueueSize = 100     // 消息队列大小
+	actorMap     sync.Map  // actor map
 )
 
 const (
@@ -21,42 +20,53 @@ const (
 	CANCELTIMER = 5 // cancel timer回调类型
 )
 
-// Actor消息结构体，用于传递消息
-type GActorMsg struct {
-	reply   chan interface{} // 消息反馈通道
-	msgType int              // 消息类型
-	msg     interface{}      // 消息内容
-	handle  Handle           // 回调函数
-	timeout time.Duration    // 超时时间
+// ActorState结构体（类型别名，与 any 等价）
+type GActorState = any
+
+// replyOnce 用 sync.Once 保护 reply channel，确保最多发送一次
+type replyOnce struct {
+	ch   chan interface{}
+	once sync.Once
 }
 
-// ActorState结构体
-type GActorState interface{}
+// Actor消息结构体，用于传递消息
+type GActorMsg[S any] struct {
+	reply   *replyOnce    // 消息反馈通道（sync.Once 保护）
+	msgType int           // 消息类型
+	msg     interface{}   // 消息内容
+	handle  Handle[S]     // 回调函数
+	timeout time.Duration // 超时时间
+}
 
 // ActorTimer结构体
-type gActorTimer struct {
+type gActorTimer[S any] struct {
 	id       string      // timer id
-	stopC    chan int    // timer stop channel
 	expireAt int64       // timer expire time in milliseconds
 	msg      interface{} // timer msg
-	handle   Handle      // timer handle
+	handle   Handle[S]   // timer handle
 }
 
+// timerHeap 是最小堆，按 expireAt 排序
+type timerHeap[S any] []*gActorTimer[S]
+
 // Actor内部结构体，用于存储actor的状态和消息队列
-type gActorStatus struct {
-	key      string         // actor 主键
-	state    GActorState    // actor 状态
-	msgChan  chan GActorMsg // actor message queue
-	timerMap *sync.Map      // 游离go routine列表 , key: timer id, value: gActorTimer
+type gActorStatus[S any] struct {
+	key         string            // actor 主键
+	state       S                 // actor 状态
+	msgChan     chan GActorMsg[S] // actor message queue
+	timers      timerHeap[S]      // timer 最小堆
+	timerWakeup chan struct{}     // 通知 timer 调度器重新计算等待时间
+	timerDone   chan struct{}     // 关闭 timer 调度器
 }
 
 // Actor结构体
-type GActor struct {
-	key string // actor 主键
+type GActor[S any] struct {
+	key    string           // actor 主键
+	status *gActorStatus[S] // 直接持有状态引用
 }
 
 // 初始化回调函数类型
-type HandleInit func(...interface{}) (GActorState, error)
+type HandleInit[S any] func(actor *GActor[S], v ...interface{}) (S, error)
 
 // 通用回调函数类型
-type Handle func(...interface{}) (interface{}, GActorState, error)
+type Handle[S any] func(actor *GActor[S], v ...interface{}) (interface{}, S, error)
