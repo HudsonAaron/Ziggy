@@ -50,6 +50,8 @@ func GetStatus[S any](actor *GActor[S]) string {
 	if actor.status == nil {
 		return "actor not found"
 	}
+	actor.status.timerMu.Lock()
+	defer actor.status.timerMu.Unlock()
 	timerStrs := []string{}
 	for _, t := range actor.status.timers {
 		timerStrs = append(timerStrs, fmt.Sprintf("{id:%v, expireAt:%v}", t.id, t.expireAt))
@@ -179,6 +181,8 @@ func (ga *GActor[S]) GetTimerTTL(timerID string) time.Duration {
 	if ga.status == nil {
 		return 0
 	}
+	ga.status.timerMu.Lock()
+	defer ga.status.timerMu.Unlock()
 	for _, t := range ga.status.timers {
 		if t.id == timerID {
 			return time.Duration(t.expireAt-gutil.TimestampMilli()) * time.Millisecond

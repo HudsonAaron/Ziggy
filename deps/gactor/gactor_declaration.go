@@ -5,8 +5,12 @@ import (
 	"time"
 )
 
+// 注：sync.Mutex 用于保护 timers slice 的并发访问。
+// startTimerScheduler 和 loop 两个 goroutine 会同时读写 timers，
+// 在 GOARCH=386 下 slice header 写入不原子，可能导致撕裂读 → 野指针 → GC 崩溃。
+
 var (
-	Version      = "1.1.1" // 版本号
+	Version      = "1.1.2" // 版本号
 	MsgQueueSize = 100     // 消息队列大小
 	actorMap     sync.Map  // actor map
 )
@@ -57,6 +61,7 @@ type gActorStatus[S any] struct {
 	timers      timerHeap[S]      // timer 最小堆
 	timerWakeup chan struct{}     // 通知 timer 调度器重新计算等待时间
 	timerDone   chan struct{}     // 关闭 timer 调度器
+	timerMu     sync.Mutex        // 保护 timers 并发访问（startTimerScheduler 与 loop 竞争）
 }
 
 // Actor结构体

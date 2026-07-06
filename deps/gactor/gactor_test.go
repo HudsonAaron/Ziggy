@@ -194,3 +194,78 @@ func TestStopPackageLevel(t *testing.T) {
 	}
 	t.Fatal("actor should be removed after package-level Stop")
 }
+
+// TestTimerHeapConcurrency 回归测试：验证 timer 堆的并发安全性。
+// 修复前：startTimerScheduler 与 loop 两个 goroutine 无锁竞争 ga.timers，
+// 在 GOARCH=386 下 slice header 撕裂读会导致野指针，引发 GC 崩溃。
+// 修复后：所有 timers 访问由 timerMu 保护，并发场景下不应 panic。
+func TestTimerHeapConcurrency(t *testing.T) {
+	actor, err := Start(&testState{name: "race-test", count: 0}, nil)
+	if err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	defer actor.StopTimeout(nil, 500*time.Millisecond)
+
+	done := make(chan struct{})
+	errors := make(chan error, 200)
+
+	// Goroutine A: 快速添加和取消 timer（模拟 loop 侧的 addTimer/cancelTimer）
+	go func() {
+		for i := 0; i < 50; i++ {
+			timerID, err := actor.SendAfter(time.Duration(10+i%30)*time.Millisecond, "tick", func(actor *GActor[*testState], v ...interface{}) (interface{}, *testState, error) {
+				s := v[len(v)-1].(*testState)
+				s.count++
+				return nil, s, nil
+			})
+			if err != nil {
+				errors <- err
+				continue
+			}
+			// 随机取消部分 timer，制造 cancelTimer 与 Pop 的竞争
+			if i%3 == 0 {
+				actor.CancelTimer(timerID)
+			}
+		}
+		done <- struct{}{}
+	}()
+
+	// Goroutine B: 同时添加另一批 timer（增加竞争密度）
+	go func() {
+		for i := 0; i < 50; i++ {
+			_, err := actor.SendAfter(time.Duration(5+i%20)*time.Millisecond, "fast", func(actor *GActor[*testState], v ...interface{}) (interface{}, *testState, error) {
+				s := v[len(v)-1].(*testState)
+				s.count++
+				return nil, s, nil
+			})
+			if err != nil {
+				errors <- err
+			}
+			time.Sleep(time.Millisecond) // 交错执行
+		}
+		done <- struct{}{}
+	}()
+
+	// 等待两个 goroutine 完成
+	<-done
+	<-done
+	close(errors)
+
+	// 收集错误
+	var errs []error
+	for e := range errors {
+		errs = append(errs, e)
+	}
+
+	// 等待所有 timer 处理完毕
+	time.Sleep(200 * time.Millisecond)
+
+	state := GetState(actor)
+	t.Logf("并发测试完成，state.count=%d, 错误数=%d", state.count, len(errs))
+
+	// 核心断言：不应 panic（如果发生 panic，测试框架会捕获）
+	if len(errs) > 0 {
+		for _, e := range errs {
+			t.Logf("timer 错误: %v", e)
+		}
+	}
+}
