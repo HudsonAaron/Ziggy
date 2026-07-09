@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	Version        = "1.0.1" // 版本号
+	Version        = "1.0.2" // 版本号
 	serverInstance *HServer  // http服务实例
 	serverMu       sync.Mutex
 )

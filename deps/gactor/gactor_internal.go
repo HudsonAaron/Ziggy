@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"main/deps/gsafego"
 	"main/deps/gutil"
 )
 
@@ -40,8 +41,10 @@ func doStart[S any](state S, handle HandleInit[S], actor *GActor[S], actorStatus
 	if err != nil {
 		return err
 	}
-	go actorStatus.startTimerScheduler()
-	go actorStatus.loop()
+	gsafego.SafeGoRebootless(actorStatus.startTimerScheduler)
+	// go actorStatus.startTimerScheduler()
+	gsafego.SafeGoRebootless(actorStatus.loop)
+	// go actorStatus.loop()
 	return nil
 }
 

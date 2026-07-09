@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"main/deps/glog"
+	"main/deps/gsafego"
 	"net"
 	"net/http"
 	"time"
@@ -59,8 +60,8 @@ func doStart(addr string, wsr []WSRouter) error {
 			Handler: handle,
 		},
 	}
-	go wss.StartServe(ln)    // 启动websocket服务
-	go server.broadcastMsg() // 启动广播协程
+	wss.StartServe(ln)    // 启动websocket服务
+	server.broadcastMsg() // 启动广播协程
 	started = true
 	// go ShowConnCount()       // 启动显示连接数协程
 	glog.Info("WebSocket Service started successfully!")
@@ -69,8 +70,14 @@ func doStart(addr string, wsr []WSRouter) error {
 
 // 运行http服务
 func (wss *WSServer) StartServe(ln net.Listener) {
-	err := wss.server.Serve(ln)
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+	_, err := gsafego.SafeGoRebootless(func() {
+		// 创建http监听
+		err := wss.server.Serve(ln)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			glog.Error("http server start error:%s", err.Error())
+		}
+	})
+	if err != nil {
 		glog.Error("http server start error:%s", err.Error())
 	}
 }

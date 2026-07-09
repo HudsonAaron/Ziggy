@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	Version = "1.0.1"
+	Version = "1.0.2"
 	// 创建WebSocket Upgrader对象，用于升级HTTP连接为WebSocket连接
 	upgrader = websocket.Upgrader{
 		// 允许所有CORS请求

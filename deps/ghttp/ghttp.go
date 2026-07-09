@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"main/deps/glog"
+	"main/deps/gsafego"
 	"math"
 	"net"
 	"net/http"
@@ -41,7 +42,8 @@ func Start(httpConf map[string]any, hr []HRouter) error {
 		},
 	}
 	serverInstance = hs
-	go hs.startServe()
+	gsafego.SafeGoRebootless(hs.startServe)
+	// go hs.startServe()
 	glog.Info("Http Service started successfully!")
 	return nil
 }

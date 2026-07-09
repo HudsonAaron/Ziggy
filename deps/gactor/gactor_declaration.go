@@ -10,7 +10,7 @@ import (
 // 在 GOARCH=386 下 slice header 写入不原子，可能导致撕裂读 → 野指针 → GC 崩溃。
 
 var (
-	Version      = "1.1.2" // 版本号
+	Version      = "1.1.3" // 版本号
 	MsgQueueSize = 100     // 消息队列大小
 	actorMap     sync.Map  // actor map
 )
